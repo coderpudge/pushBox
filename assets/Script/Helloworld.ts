@@ -25,6 +25,8 @@ export default class Helloworld extends cc.Component {
     roleBoxIdx;
     isMoving:Boolean; // 是否正在移动
 
+    round = 0;
+
     onLoad(){
         this.node.on(cc.Node.EventType.TOUCH_START, this.onTouchStart, this);
         this.node.on(cc.Node.EventType.TOUCH_MOVE, this.onTouchStart, this);
@@ -150,7 +152,7 @@ export default class Helloworld extends cc.Component {
     }
 
     createBox(idx,isRole = false){
-        if (idx > this.row * this.column) {
+        if (!idx || idx > this.row * this.column) {
             cc.log('exceed the maximum limit ')
         }
         let node = cc.instantiate(this.box);
@@ -275,8 +277,15 @@ export default class Helloworld extends cc.Component {
                         cc.log( 'game over')
                         return;
                     }
+                    let list = this.getBlockedCell();
+
+                    let rdm ;
+                    if (list.length == 1) {
+                        rdm = list[0];
+                    }else{
+                        rdm = this.getRandomBornIdx();
+                    }
                     
-                    let rdm = this.getRandomBornIdx();
                     this.createBox(rdm);
                     this.checkDie();
                     this.checkClear();
@@ -294,26 +303,24 @@ export default class Helloworld extends cc.Component {
             } 
         }
         this.randomSortList(list);
-        // let rdmList = [];
         for (let i = 0; i < list.length; i++) {
-            // let idx = Tools.getRandom(0,rdmList.length-1);
             let rdm = list[i];
             let cell = this.getMapCell(rdm);
-            if (!this.checkDie(cell)) {
+            // 如果可排成一排, 则过掉, 避免自动清除
+            if (!this.checkLine(cell)) {
                 return rdm;
             }
         }
+        return list[0];
     }
-
+    /**
+     * 随机排列
+     * @param arr 
+     */
     randomSortList(arr){
         arr.sort(()=>{
             return Math.random()-0.5;
         });
-    }
-
-    //
-    checkFullLine(){
-
     }
 
     checkClear(cb?){
@@ -403,6 +410,10 @@ export default class Helloworld extends cc.Component {
 
     }
 
+    /**
+     * 检查如果插入 cell后, 是否有路可走
+     * @param cell 
+     */
     checkDie(cell?:Cell){
         if (this.platform.childrenCount == this.row * this.column) {
             return true;
@@ -410,23 +421,27 @@ export default class Helloworld extends cc.Component {
         if (!cell) {
             cell = this.getMapCell(this.roleBoxIdx);
         }
-        let lrWay = false;//左右路
-        let udWay = false;// 上下路
+        let lrWay = false;// 左右路 可走
+        let udWay = false;// 上下路 可走
 
         for (let i = 1; i <= this.column; i++) {
-            let idx = this.getMapIdx(cell.row, i);
-            if (!this.getBox(idx)) {
-                // 有空格子, 横向有路可以走
-                lrWay = true;
-                break;
+            if (i != cell.column) {
+                let idx = this.getMapIdx(cell.row, i);
+                if (!this.getBox(idx)) {
+                    // 有空格子, 横向有路可以走
+                    lrWay = true;
+                    break;
+                }
             }
         }
         for (let i = 1; i <= this.row; i++) {
-            let idx = this.getMapIdx(i, cell.column);
-            if (!this.getBox(idx)) {
-                // 有空格子, 纵向有路可以走
-                udWay = true;
-                break;
+            if (i != cell.row) {
+                let idx = this.getMapIdx(i, cell.column);
+                if (!this.getBox(idx)) {
+                    // 有空格子, 纵向有路可以走
+                    udWay = true;
+                    break;
+                }
             }
         }
 
@@ -454,10 +469,89 @@ export default class Helloworld extends cc.Component {
                 hasWay = true;
             }
         } */
+        if (!lrWay  &&  !udWay) {
+            cc.log('game over')
+            for (let i = 0; i < this.platform.children.length; i++) {
+                let node = this.platform.children[i];
+                let cmpt = node.getComponent(Box);
+                cmpt.hide();
+            }
+        }
         return !lrWay  &&  !udWay;
     }
 
 
+
+    /**
+     * 加入cell后是否可排成一排
+     * @param cell 
+     */
+    checkLine(cell:Cell){
+        if (this.platform.childrenCount == this.row * this.column) {
+            return true;
+        }
+
+        let lrWay = false;// 左右路 可走
+        let udWay = false;// 上下路 可走
+
+        for (let i = 1; i <= this.column; i++) {
+            if (i != cell.column) {
+                let idx = this.getMapIdx(cell.row, i);
+                let node = this.getBox(idx);
+                if (!node || node.getComponent(Box).type == BOX_TYPE.ROLE) {
+                    // 有空格子, 横向有路可以走
+                    lrWay = true;
+                    break;
+                }
+            }
+        }
+        if (!lrWay) {
+            return true;
+        }
+        for (let i = 1; i <= this.row; i++) {
+            if (i != cell.row) {
+                let idx = this.getMapIdx(i, cell.column);
+                let node = this.getBox(idx);
+                if (!node || node.getComponent(Box).type == BOX_TYPE.ROLE) {
+                    // 有空格子, 纵向有路可以走
+                    udWay = true;
+                    break;
+                }
+            }
+        }
+
+        return !lrWay || !udWay;
+    }
+
+    /**
+     *  致命一击的 阻塞位置
+     */
+    getBlockedCell(){
+        let cell = this.getMapCell(this.roleBoxIdx);
+        let lrWay = false;// 左右路 可走
+        let udWay = false;// 上下路 可走
+        let lrList = [];
+        let udList = [];
+        for (let i = 1; i <= this.column; i++) {
+            if (i != cell.column) {
+                let idx = this.getMapIdx(cell.row, i);
+                if (!this.getBox(idx)) {
+                    // 有空格子, 横向有路可以走
+                    lrList.push(idx);
+                }
+            }
+        }
+        for (let i = 1; i <= this.row; i++) {
+            if (i != cell.row) {
+                let idx = this.getMapIdx(i, cell.column);
+                if (!this.getBox(idx)) {
+                    // 有空格子, 纵向有路可以走
+                    udList.push(idx);
+                }
+            }
+        }
+        return lrList.concat(udList);
+    }
 }
 
 class Cell extends cc.ValueType{
